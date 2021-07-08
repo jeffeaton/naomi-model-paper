@@ -1,15 +1,14 @@
-#' Analysis conducted using naomi v2.3.14. 
+#' Analysis conducted using naomi v2.3.14 customised to also
+#' output linear predictors for new observations.
 #'
-#' Install the Git commit used for analysis with:
-#'
-#' > devtools::install_github("mrc-ide/naomi@93dc3b1")
-#' 
 
-library(naomi)
+devtools::load_all("naomi", export_all = FALSE)
+
 library(tidyverse)
 library(scales)
 library(sf)
 library(gridExtra)
+library(cowplot)
 
 #' ## Input data files
 
@@ -28,7 +27,7 @@ scope <- "MWI"
 level <- 4
 calendar_quarter_t1 <- "CY2016Q1"
 calendar_quarter_t2 <- "CY2018Q3"
-calendar_quarter_t3 <- "CY2019Q4"
+calendar_quarter_t3 <- "CY2019Q3"
 
 #' ### Select data inputs for model fitting
 
@@ -91,10 +90,11 @@ tmb_inputs <- prepare_tmb_inputs(naomi_data)
 
 #' ## Fit the TMB model
 
+set.seed(54486050)
+  
 fit <- fit_tmb(tmb_inputs)
 fit <- sample_tmb(fit)
 outputs <- output_package(fit, naomi_mf)
-
 
 indicators <- add_output_labels(outputs) %>%
   left_join(
@@ -106,7 +106,75 @@ indicators <- add_output_labels(outputs) %>%
     area_level_label = fct_reorder(area_level_label, area_level),
     age_group_label = fct_reorder(age_group_label, as.integer(factor(age_group)))
   )
- 
+
+#' ## Posterior predictive sample
+#'
+#' Note: this is custom for paper analysis; not in main version of model.
+
+fit_pred <- fit
+fit_pred$obj <- naomi:::make_tmb_obj(tmb_inputs$data, tmb_inputs$par_init,
+                                     calc_outputs = 2L, inner_verbose = FALSE)
+fit_pred <- sample_tmb(fit_pred)
+
+
+#' Prevalence 15-49 by district
+
+prev_pred_x <- rbinom(length(fit_pred$sample$rho_obs_t1),
+                      round(naomi_data$prev_dat$n_eff),
+                      fit_pred$sample$rho_obs_t1)
+dim(prev_pred_x) <- dim(fit_pred$sample$rho_obs_t1)
+
+
+#' ART coverage 15-64 by district
+
+artcov_pred_x <- rbinom(length(fit_pred$sample$alpha_obs_t1),
+                        round(naomi_data$artcov_dat$n_eff),
+                        fit_pred$sample$alpha_obs_t1)
+dim(artcov_pred_x) <- dim(fit_pred$sample$alpha_obs_t1)
+
+
+#' ANC prevalence predictive distribution
+
+ancprev_pred_x <- rbinom(length(fit_pred$sample$anc_rho_obs_t1),
+                         naomi_data$anc_prev_t1_dat$anc_prev_n,
+                         fit_pred$sample$anc_rho_obs_t1)
+dim(ancprev_pred_x) <- dim(fit_pred$sample$anc_rho_obs_t1)
+
+
+#' ANC ART coverage predictive distribution
+
+ancartcov_pred_x <- rbinom(length(fit_pred$sample$anc_alpha_obs_t1),
+                           naomi_data$anc_artcov_t1_dat$anc_artcov_n,
+                           fit_pred$sample$anc_alpha_obs_t1)
+dim(ancartcov_pred_x) <- dim(fit_pred$sample$anc_alpha_obs_t1)
+
+
+#' ## Calibrated model outputs
+
+outputs_calib <- calibrate_outputs(outputs,
+                                   naomi_mf,
+                                   spectrum_plhiv_calibration_level = "national",
+                                   spectrum_plhiv_calibration_strat = "sex_age_coarse",
+                                   spectrum_artnum_calibration_level = "national", 
+                                   spectrum_artnum_calibration_strat = "sex_age_coarse",
+                                   spectrum_aware_calibration_level = "national", 
+                                   spectrum_aware_calibration_strat = "sex_age_coarse",
+                                   spectrum_infections_calibration_level = "national", 
+                                   spectrum_infections_calibration_strat = "sex_age_coarse",
+                                   calibrate_method = "logistic")
+
+
+indicators_calib <- add_output_labels(outputs_calib) %>%
+  left_join(
+    select(outputs_calib$meta_area, area_level, area_id, center_x, center_y),
+    by = c("area_level", "area_id")
+  ) %>%
+  sf::st_as_sf() %>%
+  mutate(
+    area_level_label = fct_reorder(area_level_label, area_level),
+    age_group_label = fct_reorder(age_group_label, as.integer(factor(age_group)))
+  )
+
 
 #' ## Fit model with no ART attendance
 
@@ -265,7 +333,7 @@ fig3c <- fig3cdat %>%
   )
 
 
-quartz(width = 180 / 25.4, height = 180 / 25.4)
+## quartz(width = 180 / 25.4, height = 180 / 25.4)
 
 fig3 <- grid.arrange(fig3a, fig3b, fig3c,
                      layout_matrix = rbind(1, c(NA, 2, 3, NA)),
@@ -351,221 +419,304 @@ ggsave("figure4.png", fig4, width = 180, height = 130, units = "mm")
 
 
 #' ## Figure 5
+
+#' Posterior predictive distribution
 #'
-#' * Survey prevalence vs. estimates
-#' * Survey ART coverage vs. estimates
-#' * ANC prevalence vs. estimates
-#' * ANC ART coverage vs. estimates
+#' * Survey prevalence 15-49
+#' * Survey ART coverage 15-64
+#' * ANC prevalence x2
+#' * ANC ART coverage x2
+#' * ART number x2
 
-d <- tmb_inputs$data
-p <- fit$par.full %>% split(names(.))
-
-pop15to49 <- naomi_data$mf_model$age15to49 * d$population_t1
-pop15plus <- naomi_data$mf_model$age15plus * d$population_t1
-
-mu_asfr <- d$X_asfr %*% p$beta_asfr +
-  d$Z_asfr_x %*% p$ui_asfr_x
-anc_clients <- as.vector(d$population_t1 * exp(d$log_asfr_t1_offset + mu_asfr))
-
-mu_rho <- d$X_rho %*% p$beta_rho +
-  d$logit_rho_offset +
-  d$Z_rho_a %*% p$u_rho_a +
-  d$Z_rho_as %*% p$u_rho_as
-
-mu_anc_rho <- mu_rho +
-  d$logit_anc_rho_t1_offset +
-  d$X_ancrho %*% p$beta_anc_rho
-
-mu_alpha <- d$X_alpha %*% p$beta_alpha +
-  d$logit_alpha_offset +
-  d$Z_alpha_a %*% p$u_alpha_a +
-  d$Z_alpha_as %*% p$u_alpha_as
-
-mu_anc_alpha <- mu_alpha +
-  d$logit_anc_alpha_t1_offset +
-  d$X_ancalpha %*% p$beta_anc_alpha
-
-
-sum(plogis(as.matrix(mu_rho)) * pop15to49) / sum(pop15to49)
-sum(plogis(as.matrix(mu_rho)) * plogis(as.matrix(mu_alpha)) * pop15to49) /
-  sum(plogis(as.matrix(mu_rho)) * pop15to49)
-
-ux_seq <- seq(-2.5, 1.5, 0.01)
-pred_prev15to49 <- colSums(plogis(outer(mu_rho, ux_seq, "+")) * pop15to49) / sum(pop15to49)
-pred_ancprev <- colSums(plogis(outer(mu_anc_rho, ux_seq, "+")) * anc_clients) / sum(anc_clients)
-
-pred_artcov15plus <- colSums(plogis(outer(mu_alpha, ux_seq, "+")) * plogis(as.vector(mu_anc_rho)) * pop15plus) /
-  sum(plogis(as.vector(mu_anc_rho)) * pop15plus)
-
-pred_ancartcov <- colSums(plogis(outer(mu_anc_alpha, ux_seq, "+")) *
-                          plogis(as.vector(mu_anc_rho)) * anc_clients) /
-  sum(plogis(as.vector(mu_anc_rho)) * anc_clients)
-
-df_pred <- data.frame(pred_prev15to49, pred_ancprev, pred_artcov15plus, pred_ancartcov)
-
-
-fig5a <- indicators %>%
-  filter(
-    indicator == "prevalence",
-    sex == "both",
-    age_group == "Y015_049",
-    calendar_quarter == "CY2016Q1",
-    area_level == 4
+prev_pred <- naomi_data$prev_dat %>%
+  mutate(
+    nsim = round(naomi_data$prev_dat$n_eff)
   ) %>%
-  left_join(
-    survey %>%
+  bind_cols(as.data.frame(prev_pred_x))
+
+prev_pred <- prev_pred %>%
+  semi_join(
+    get_age_groups() %>%
+    filter(age_group_span == 5,
+           age_group_start >= 15,
+           age_group_start + age_group_span <= 50)
+  ) %>%
+  group_by(area_id, survey_id) %>%
+  summarise(
+    nsim = sum(nsim),
+    estsim = sum(x_eff) / sum(n_eff),
+    across(V1:V1000, sum),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    across(V1:V1000, `/`, nsim)
+  ) %>%
+  pivot_longer(V1:V1000, names_to = "sample") %>%
+  group_by(area_id, survey_id, estsim) %>%
+  summarise(
+    pp_mean = mean(value),
+    pp_median = quantile(value, 0.5, names = FALSE),
+    pp_lower = quantile(value, 0.025, names = FALSE),
+    pp_upper = quantile(value, 0.975, names = FALSE),
+    pp_lower80 = quantile(value, 0.1, names = FALSE),
+    pp_upper80 = quantile(value, 0.9, names = FALSE),
+    .groups = "drop"
+  ) %>%
+  full_join(
+    indicators %>%
     filter(
       indicator == "prevalence",
+      area_level == 4,
+      calendar_quarter == "CY2016Q1",
       sex == "both",
-      age_group == "Y015_049",
-      survey_id %in% c("DEMO2015DHSA", "DEMO2016PHIA")
-    )%>%
-    select(area_id, survey_id, estimate),
-    by = "area_id"
-  ) %>%
-  ggplot(aes(estimate, mean, ymin = lower, ymax = upper, shape = survey_id,
-             name = area_name)) +
-  geom_abline(linetype = "solid", color = "grey90") +
-  geom_point(color = "grey25") +
-  geom_linerange(color = "grey25") +
-  scale_x_continuous(labels = label_percent(1), limits = c(0.02, 0.23)) +
-  scale_y_continuous(labels = label_percent(1), limits = c(0.02, 0.23)) +
-  scale_shape_manual(
-    element_blank(),
-    values = c("DEMO2015DHSA" = 16, "DEMO2016PHIA" = 15),
-    labels = c("DEMO2015DHSA" = "MDHS 2015-16*", "DEMO2016PHIA" = "MPHIA 2015-16**")
-  ) +
-  labs(tag = "A",
-       x = "Data: Survey HIV prevalence 15-49 y",
-       y = "Model: Prevalence 15-49 y") +
-  coord_fixed() +
-  theme_bw(10) +
-  theme(
-    legend.position = c(1, 0),
-    legend.just = c(1, 0),
-    legend.background = element_rect(fill = NA),
-    panel.grid = element_blank(),
-    plot.tag = element_text(face = "bold")
-  )
-
-fig5b <- indicators %>%
-  filter(
-    indicator == "art_coverage",
-    sex == "both",
-    age_group == "Y015_999",
-    calendar_quarter == "CY2016Q1",
-    area_level == 4
+      age_group == "Y015_049"
+    )
   ) %>%
   left_join(
     survey %>%
+    filter(indicator == "prevalence",
+           sex == "both",
+           age_group == "Y015_049") %>%
+    select(indicator, survey_id, area_id, sex, age_group, estimate)
+  ) %>%
+  mutate(
+    farea_name = fct_reorder(area_name, mean, .desc = TRUE)
+  )
+
+
+artcov_pred <- naomi_data$artcov_dat %>%
+  mutate(
+    nsim = round(naomi_data$artcov_dat$n_eff)
+  ) %>%
+  bind_cols(as.data.frame(artcov_pred_x))
+
+artcov_pred <- artcov_pred %>%
+  semi_join(
+    get_age_groups() %>%
+    filter(age_group_span == 5,
+           age_group_start >= 15,
+           age_group_start + age_group_span <= 65)
+  ) %>%
+  group_by(area_id, survey_id) %>%
+  summarise(
+    nsim = sum(nsim),
+    across(V1:V1000, sum),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    across(V1:V1000, `/`, nsim)
+  ) %>%
+  pivot_longer(V1:V1000, names_to = "sample") %>%
+  group_by(area_id, survey_id) %>%
+  summarise(
+    pp_mean = mean(value),
+    pp_median = quantile(value, 0.5, names = FALSE),
+    pp_lower = quantile(value, 0.025, names = FALSE),
+    pp_upper = quantile(value, 0.975, names = FALSE),
+    pp_lower80 = quantile(value, 0.1, names = FALSE),
+    pp_upper80 = quantile(value, 0.9, names = FALSE),
+    .groups = "drop"
+  ) %>%
+  full_join(
+    indicators %>%
     filter(
       indicator == "art_coverage",
+      area_level == 4,
+      calendar_quarter == "CY2016Q1",
       sex == "both",
-      age_group == "Y015_064",
-      survey_id %in% c("DEMO2015DHSA", "DEMO2016PHIA")
-    )%>%
-    select(area_id, survey_id, estimate),
-    by = "area_id"
+      age_group == "Y015_064"
+    )
   ) %>%
-  filter(!is.na(survey_id)) %>%
-  ggplot(aes(estimate, mean, ymin = lower, ymax = upper, shape = survey_id,
-             name = area_name)) +
-  geom_abline(linetype = "solid", color = "grey90") +
-  geom_point(color = "grey25") +
-  geom_linerange(color = "grey25") +
-  scale_x_continuous(labels = label_percent(1), limits = c(0.4, 0.88)) +
-  scale_y_continuous(labels = label_percent(1), limits = c(0.4, 0.88)) +
+  left_join(
+    survey %>%
+    filter(indicator == "art_coverage",
+           sex == "both",
+           age_group == "Y015_064") %>%
+    select(indicator, survey_id, area_id, sex, age_group, estimate)
+  ) %>%
+  mutate(
+    farea_name = fct_reorder(area_name, mean, .desc = TRUE)
+  )
+
+ancprev_pred <- naomi_data$anc_prev_t1_dat %>%
+  mutate(
+    estimate = anc_prev_x / anc_prev_n,
+  ) %>%
+  bind_cols(as.data.frame(ancprev_pred_x))
+
+ancprev_pred <- ancprev_pred %>%
+  mutate(
+    across(V1:V1000, `/`, anc_prev_n)
+  ) %>%
+  pivot_longer(V1:V1000, names_to = "sample") %>%
+  group_by(area_id, anc_prev_x, anc_prev_n, estimate) %>%
+  summarise(
+    pp_mean = mean(value),
+    pp_median = quantile(value, 0.5, names = FALSE),
+    pp_lower = quantile(value, 0.025, names = FALSE),
+    pp_upper = quantile(value, 0.975, names = FALSE),
+    pp_lower80 = quantile(value, 0.1, names = FALSE),
+    pp_upper80 = quantile(value, 0.9, names = FALSE),
+    .groups = "drop"
+  ) %>%
+  full_join(
+    indicators %>%
+    filter(
+      indicator == "anc_prevalence",
+      area_level == 4,
+      calendar_quarter == "CY2016Q1",
+      sex == "female",
+      age_group == "Y015_049"
+    )
+  ) %>%
+  mutate(
+    farea_name = factor(area_name, levels(prev_pred$farea_name))
+  )
+
+ancartcov_pred <- naomi_data$anc_artcov_t1_dat %>%
+  mutate(
+    estimate = anc_artcov_x / anc_artcov_n,
+  ) %>%
+  bind_cols(as.data.frame(ancartcov_pred_x))
+
+ancartcov_pred <- ancartcov_pred %>%
+  mutate(
+    across(V1:V1000, `/`, anc_artcov_n)
+  ) %>%
+  pivot_longer(V1:V1000, names_to = "sample") %>%
+  group_by(area_id, anc_artcov_x, anc_artcov_n, estimate) %>%
+  summarise(
+    pp_mean = mean(value),
+    pp_median = quantile(value, 0.5, names = FALSE),
+    pp_lower = quantile(value, 0.025, names = FALSE),
+    pp_upper = quantile(value, 0.975, names = FALSE),
+    pp_lower80 = quantile(value, 0.1, names = FALSE),
+    pp_upper80 = quantile(value, 0.9, names = FALSE),
+    .groups = "drop"
+  ) %>%
+  full_join(
+    indicators %>%
+    filter(
+      indicator == "anc_art_coverage",
+      area_level == 4,
+      calendar_quarter == "CY2016Q1",
+      sex == "female",
+      age_group == "Y015_049"
+    )
+  ) %>%
+  mutate(
+    farea_name = factor(area_name, levels(artcov_pred$farea_name))
+  )
+
+
+fig5a <- prev_pred %>%
+  ggplot(aes(x = farea_name, y = mean)) +
+  geom_linerange(aes(ymin = lower, ymax = upper), size = 2, color = "grey25") +
+  geom_crossbar(ymin = NA, ymax = NA, width = 0.6, size = 0.4, color = "grey25") +
+  geom_linerange(aes(ymin = pp_lower80, ymax = pp_upper80, group = survey_id), color = "lightblue3", position = position_dodge(width = 0.35)) +
+  geom_point(aes(y = estimate, shape = survey_id), color = "red", position = position_dodge(width = 0.35)) +
+  theme_bw(10) +
+  labs(tag = "A", y = element_blank(), x = element_blank(), shape = element_blank()) +
+  scale_shape_manual(
+    element_blank(),
+    values = c("DEMO2015DHSA" = 17, "DEMO2016PHIA" = 15),
+    labels = c("DEMO2015DHSA" = "MDHS 2015-16", "DEMO2016PHIA" = "MPHIA 2015-16*")
+  ) +
+  scale_y_continuous("HIV prevalence, 15-49y", labels = label_percent(1)) +
+  expand_limits(y = 0) +
+  theme(
+    legend.position = c(1, 1),
+    legend.just = c(1, 0.85),
+    legend.background = element_rect(fill = NA),
+    legend.key.size = unit(1, "lines"),
+    panel.grid = element_blank(),
+    axis.text.x = element_blank(),
+    plot.tag = element_text(face = "bold"),
+    plot.tag.position = c(0, 1.0),    
+    plot.background = element_rect(fill = NA),
+    plot.margin = margin(12, 2, -3, 10, "pt")
+  )
+
+fig5b <- ancprev_pred %>%
+  ggplot(aes(x = farea_name, y = mean)) +
+  geom_point(size = 1.5, color = "grey25", alpha = 0.2,
+             data = filter(prev_pred, survey_id == "DEMO2015DHSA")) +
+  geom_linerange(aes(ymin = lower, ymax = upper), size = 2, color = "grey25") +
+  geom_crossbar(ymin = NA, ymax = NA, width = 0.6, size = 0.4, color = "grey25") +
+  geom_linerange(aes(ymin = pp_lower80, ymax = pp_upper80), color = "lightblue3", position = position_dodge(width = 0.35)) +
+  geom_point(aes(y = estimate), color = "red", position = position_dodge(width = 0.35)) +
+  theme_bw(10) +
+  labs(tag = "B", y = element_blank(), x = element_blank(), shape = element_blank()) +
+  scale_y_continuous("ANC HIV prevalence", labels = label_percent(1)) +
+  expand_limits(y = 0) +
+  theme(
+    legend.position = c(1, 1),
+    legend.just = c(1, 0.85),
+    legend.background = element_rect(fill = NA),
+    legend.key.size = unit(1, "lines"),
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    plot.tag = element_text(face = "bold"),
+    plot.tag.position = c(0, 1.0),
+    plot.background = element_rect(fill = NA),
+    plot.margin = margin(0, 2, 0, 10, "pt")
+  )
+
+fig5c <- artcov_pred %>%
+  ggplot(aes(x = farea_name, y = mean)) +
+  geom_linerange(aes(ymin = lower, ymax = upper), size = 2, color = "grey25") +
+  geom_crossbar(ymin = NA, ymax = NA, width = 0.6, size = 0.4, color = "grey25") +
+  geom_linerange(aes(ymin = pp_lower80, ymax = pp_upper80, group = survey_id), color = "lightblue3", position = position_dodge(width = 0.35)) +
+  geom_point(aes(y = estimate, shape = survey_id), color = "red", position = position_dodge(width = 0.35)) +
+  theme_bw(10) +
+  labs(tag = "C", y = element_blank(), x = element_blank(), shape = element_blank()) +
   scale_shape_manual(
     element_blank(),
     values = c("DEMO2016PHIA" = 15),
-    labels = c("DEMO2016PHIA" = "MPHIA 2015-16**")
+    labels = c("DEMO2016PHIA" = "MPHIA 2015-16*")
   ) +
-  labs(tag = "B",
-       x = "Data: Survey ART coverage 15-64 y",
-       y = "Model: ART coverage 15+ y") +
-  coord_fixed() +
-  theme_bw(10) +
+  scale_y_continuous("ART coverage, 15-64y", labels = label_percent(1), limits = c(0, 1)) +
   theme(
-    legend.position = c(1, 0),
-    legend.just = c(1, 0),
+    legend.position = c(1, 1),
+    legend.just = c(1, 0.75),
     legend.background = element_rect(fill = NA),
+    legend.key.size = unit(1, "lines"),
     panel.grid = element_blank(),
-    plot.tag = element_text(face = "bold")
+    axis.text.x = element_blank(),
+    plot.tag = element_text(face = "bold"),
+    plot.tag.position = c(0, 1.0),    
+    plot.background = element_rect(fill = NA),
+    plot.margin = margin(12, 2, -3, 10, "pt")
   )
 
-
-fig5c <- indicators %>%
-  filter(
-    indicator == "prevalence",
-    sex == "both",
-    age_group == "Y015_049",
-    calendar_quarter == "CY2016Q1",
-    area_level == 4
-  ) %>%
-  left_join(
-    naomi_data$anc_prev_t1_dat %>%
-    mutate(anc_prev_obs = anc_prev_x / anc_prev_n) %>%
-    select(area_id, anc_prev_obs),
-    by = "area_id"
-  ) %>%
-  ggplot(aes(anc_prev_obs, mean, ymin = lower, ymax = upper,
-             name = area_name,)) +
-  geom_abline(linetype = "solid", color = "grey90") +
-  geom_line(aes(pred_ancprev, pred_prev15to49), data = df_pred,
-            color = "red4", linetype = "dashed", size = 0.8,
-            inherit.aes = FALSE) +
-  geom_point(color = "grey25") +
-  geom_linerange(color = "grey25") +
-  scale_x_continuous(labels = label_percent(1), limits = c(0.02, 0.23)) +
-  scale_y_continuous(labels = label_percent(1), limits = c(0.02, 0.23)) +
-  labs(tag = "C",
-       x = "Data: ANC HIV prevalence",
-       y = "Model: Prevalence 15-49 y") +
-  coord_fixed() +
+fig5d <- ancartcov_pred %>%
+  ggplot(aes(x = farea_name, y = mean)) +
+  geom_point(size = 1.5, color = "grey25", alpha = 0.2,
+             data = artcov_pred) +
+  geom_linerange(aes(ymin = lower, ymax = upper), size = 2, color = "grey25") +
+  geom_crossbar(ymin = NA, ymax = NA, width = 0.6, size = 0.4, color = "grey25") +
+  geom_linerange(aes(ymin = pp_lower80, ymax = pp_upper80), color = "lightblue3", position = position_dodge(width = 0.35)) +
+  geom_point(aes(y = estimate), color = "red", position = position_dodge(width = 0.35)) +
   theme_bw(10) +
+  labs(tag = "D", y = element_blank(), x = element_blank(), shape = element_blank()) +
+  scale_y_continuous("ANC ART coverage", labels = label_percent(1), limits = c(0, 1)) +
   theme(
+    legend.position = c(1, 1),
+    legend.just = c(1, 0.85),
+    legend.background = element_rect(fill = NA),
+    legend.key.size = unit(1, "lines"),
     panel.grid = element_blank(),
-    plot.tag = element_text(face = "bold")
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    plot.tag = element_text(face = "bold"),
+    plot.tag.position = c(0, 1.0),
+    plot.background = element_rect(fill = NA),
+    plot.margin = margin(0, 2, 0, 10, "pt")
   )
 
-fig5d <- indicators %>%
-  filter(
-    indicator == "art_coverage",
-    sex == "both",
-    age_group == "Y015_999",
-    calendar_quarter == "CY2016Q1",
-    area_level == 4
-  ) %>%
-  left_join(
-    naomi_data$anc_artcov_t1_dat %>%
-    mutate(anc_artcov_obs = anc_artcov_x / anc_artcov_n) %>%
-    select(area_id, anc_artcov_obs),
-    by = "area_id"
-  ) %>%
-  ggplot(aes(anc_artcov_obs, mean, ymin = lower, ymax = upper,
-             name = area_name,)) +
-  geom_abline(linetype = "solid", color = "grey90") +
-  geom_line(aes(pred_ancartcov, pred_artcov15plus), data = df_pred,
-            color = "red4", linetype = "dashed", size = 0.8,
-            inherit.aes = FALSE) +
-  geom_point(color = "grey25") +
-  geom_linerange(color = "grey25") +
-  scale_x_continuous(labels = label_percent(1), limits = c(0.4, 0.88)) +
-  scale_y_continuous(labels = label_percent(1), limits = c(0.4, 0.88)) +
-  labs(tag = "D",
-       x = "Data: ANC ART coverage",
-       y = "Model: ART coverage 15+ y") +
-  coord_fixed() +
-  theme_bw(10) +
-  theme(
-    panel.grid = element_blank(),
-    plot.tag = element_text(face = "bold")
-  )
+fig5 <- grid.arrange(fig5a, fig5b, fig5c, fig5d, heights = c(1, 1.15, 1, 1.15))
 
-fig5 <- grid.arrange(fig5a, fig5b, fig5c, fig5d)
-
-ggsave("figure5.pdf", fig5, width = 180, height = 180, units = "mm")
-ggsave("figure5.png", fig5, width = 180, height = 180, units = "mm")
+ggsave("figure5.pdf", fig5, width = 180, height = 220, units = "mm")
+ggsave("figure5.png", fig5, width = 180, height = 220, units = "mm")
 
 
 #' ## Figure 6
@@ -602,7 +753,7 @@ fig6a <- fig6adat %>%
   ggplot(aes(area_name, mean, ymin = lower, ymax = upper, fill = indicator, color = indicator)) +
   geom_col(position = "dodge", alpha = 0.7, color = NA) +
   geom_linerange(position = position_dodge(width = 0.9), size = 1.0) +
-  scale_color_brewer(palette = "Set1", guide = FALSE) +
+  scale_color_brewer(palette = "Set1", guide = "none") +
   scale_fill_brewer(palette = "Set1",
                     labels = c("art_current_residents" = "Residents on ART",
                                "art_current" = "ART clients at facilities")) +  
@@ -705,15 +856,174 @@ fig6c <- fig6bcdat %>%
   )
 
 
-quartz(w = 180 / 25.4, h = 180 / 25.4)
-
 fig6 <- grid.arrange(fig6a, fig6b, fig6c)
 
 ggsave("figure6.pdf", fig6, width = 180, height = 180, units = "mm")
 ggsave("figure6.png", fig6, width = 180, height = 180, units = "mm")
 
+#' ## Supplementary Figure S1
+#'
+#' Comparison of raw and calibrated results.
+#' 
+#' S1A: National by sex
+#' *  HIV prevalence 15-49
+#' *  ART coverage 15+
+#' *  Incidence rate 15-49
+#'
+#' S1B: HIV prevalence by district
+#'
+#' S1C: ART coverage by district
 
-#' ## Figure 7
+
+figS1dat <- indicators %>%
+  mutate(version = "Raw") %>%
+  bind_rows(
+    indicators_calib %>%
+    mutate(version = "Calibrated")
+  ) %>%
+  filter(
+    calendar_quarter == "CY2018Q3",
+    age_group == "Y015_049" & indicator %in% c("prevalence", "incidence") |
+    age_group == "Y015_999" & indicator %in% "art_coverage"
+  ) %>%
+  mutate(
+    version = factor(version, c("Raw", "Calibrated")),
+    sex = factor(sex, c("both", "female", "male"), c("Both", "Female", "Male"))
+  )
+
+
+figS1ai <- figS1dat %>%
+  filter(
+    area_id == "MWI",
+    indicator == "prevalence"
+  ) %>%
+  ggplot(aes(sex, mean, ymin = lower, ymax = upper, fill = version)) +
+  geom_col(position = position_dodge(0.9)) +
+  geom_linerange(position = position_dodge(0.9)) +
+  geom_text(aes(y = upper + 0.006, label = percent(mean, 0.1)),
+            position = position_dodge(0.9), fontface = "bold", size = 2.3) +
+  scale_y_continuous(label = label_percent(1.0), expand = expansion(c(0, 0.05)),
+                     limits = c(0, 0.15)) +
+  scale_fill_brewer(palette = "Set1") +
+  labs(tag = "A", title = "HIV prevalence, 15-49y", x = NULL, y = NULL, fill = NULL) +
+  theme_classic(10) +
+  theme(    
+    legend.position = "none",
+    plot.title = element_text(size = rel(0.9), hjust = 0.5, face = "bold"),
+    plot.tag.position = c(0, 1.0),
+    plot.tag = element_text(face = "bold"),
+    axis.text.x = element_text(face = "bold")
+  )
+
+figS1aii <- figS1dat %>%
+  filter(
+    area_id == "MWI",
+    indicator == "art_coverage"
+  ) %>%
+  ggplot(aes(sex, mean, ymin = lower, ymax = upper, fill = version)) +
+  geom_col(position = position_dodge(0.9)) +
+  geom_linerange(position = position_dodge(0.9)) +
+  geom_text(aes(y = upper + 0.04, label = percent(mean, 1.0)),
+            position = position_dodge(0.9), fontface = "bold", size = 2.3) +
+  scale_y_continuous(label = label_percent(), expand = expansion(c(0, 0.05)),
+                     limits = c(0, 0.95)) +
+  scale_fill_brewer(palette = "Set1") +
+  labs(tag = "", title = "ART coverage, 15+y", x = NULL, y = NULL, fill = NULL) +
+  theme_classic(10) +
+  theme(    
+    legend.position = "none",
+    plot.title = element_text(size = rel(0.9), hjust = 0.5, face = "bold"),
+    plot.tag.position = c(0, 1.0),
+    plot.tag = element_text(face = "bold"),
+    axis.text.x = element_text(face = "bold")
+  )
+
+figS1aiii <- figS1dat %>%
+  filter(
+    area_id == "MWI",
+    indicator == "incidence"
+  ) %>%
+  ggplot(aes(sex, mean, ymin = lower, ymax = upper, fill = version)) +
+  geom_col(position = position_dodge(0.9)) +
+  geom_linerange(position = position_dodge(0.9)) +
+  geom_text(aes(y = upper + 0.001, label = number(mean, 0.1, scale = 1e3)),
+            position = position_dodge(0.9), fontface = "bold", size = 2.3) +
+  scale_y_continuous(label = label_number(scale = 1e3), expand = expansion(c(0, 0.05))) +
+  scale_fill_brewer(palette = "Set1") +
+  labs(tag = "", title = "Incidence per 1000, 15-49y", x = NULL, y = NULL, fill = NULL) +
+  theme_classic(10) +
+  theme(    
+    legend.position = "none",
+    plot.title = element_text(size = rel(0.9), hjust = 0.5, face = "bold"),
+    plot.tag.position = c(0, 1.0),
+    plot.tag = element_text(face = "bold"),
+    axis.text.x = element_text(face = "bold")
+  )
+
+
+figS1b <- figS1dat %>%
+  filter(
+    area_level == 4,
+    indicator == "prevalence",
+    sex == "Both"
+  ) %>%
+  mutate(
+    farea_name = fct_reorder(area_name, mean, .desc = TRUE)
+  ) %>%
+  ggplot(aes(farea_name, mean, ymin = lower, ymax = upper, fill = version)) +
+  geom_col(position = position_dodge(0.9)) +
+  geom_linerange(position = position_dodge(0.9)) +
+  scale_y_continuous(label = label_percent(1.0), expand = expansion(c(0, 0.05))) +
+  scale_fill_brewer(palette = "Set1") +
+  labs(tag = "B", y = "HIV prevalence, 15-49y", x = NULL, fill = NULL) +
+  theme_classic(10) +
+  theme(    
+    legend.position = "none",
+    plot.title = element_text(size = rel(0.9), hjust = 0.5, face = "bold"),
+    plot.tag.position = c(0, 1.08),
+    plot.tag = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 30, hjust = 1.0),
+    plot.margin = margin(20, 5.5, 5.5, 5.5, "pt")
+  )
+
+figS1c <- figS1dat %>%
+  filter(
+    area_level == 4,
+    indicator == "art_coverage",
+    sex == "Both"
+  ) %>%
+  mutate(
+    farea_name = fct_reorder(area_name, mean, .desc = TRUE)
+  ) %>%
+  ggplot(aes(farea_name, mean, ymin = lower, ymax = upper, fill = version)) +
+  geom_col(position = position_dodge(0.9)) +
+  geom_linerange(position = position_dodge(0.9)) +
+  scale_y_continuous(label = label_percent(1.0), expand = expansion(c(0, 0.05))) +
+  scale_fill_brewer(palette = "Set1") +
+  labs(tag = "C", y = "ART coverage, 15+y", x = NULL, fill = NULL) +
+  coord_cartesian(ylim = c(0.6, 0.9)) +
+  theme_classic(10) +
+  theme(    
+    legend.position = "none",
+    plot.title = element_text(size = rel(0.9), hjust = 0.5, face = "bold"),
+    plot.tag.position = c(0, 1.08),
+    plot.tag = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 30, hjust = 1.0),
+    plot.margin = margin(20, 5.5, 5.5, 5.5, "pt")
+  )
+
+
+figS1leg <- cowplot::get_legend(figS1ai + theme(legend.position = "bottom"))
+  
+figS1a <- grid.arrange(figS1ai, figS1aii, figS1aiii, nrow = 1)
+figS1 <- grid.arrange(figS1a, figS1b, figS1c, figS1leg, ncol = 1, heights = c(1, 1, 1, 0.1))
+
+ggsave("figureS1.pdf", figS1, width = 180, height = 190, units = "mm")
+ggsave("figureS1.png", figS1, width = 180, height = 190, units = "mm")
+
+
+
+#' ## Supplementary Figure S2
 #'
 #' Comparison of results with ART attendance = FALSE
 #'
@@ -725,7 +1035,7 @@ ggsave("figure6.png", fig6, width = 180, height = 180, units = "mm")
 #' * Attending ART
 #' * Unmet need for ART
 
-fig7dat <- indicators %>%
+figS2dat <- indicators %>%
   st_drop_geometry() %>%
   mutate(version = "full") %>%
   bind_rows(
@@ -748,7 +1058,7 @@ fig7dat <- indicators %>%
   )
 
 
-fig7a <- fig7dat %>%
+figS2a <- figS2dat %>%
   filter(indicator == "plhiv") %>%
   ggplot(aes(area_name, mean, ymin = lower, ymax = upper, fill = version, color = version)) +
   geom_col(position = "dodge", color = NA, alpha = 1.0) +
@@ -776,7 +1086,7 @@ fig7a <- fig7dat %>%
     legend.key.size = unit(1, "lines")
   )
 
-fig7b <- fig7dat %>%
+figS2b <- figS2dat %>%
   filter(indicator == "art_current") %>%
   ggplot(aes(area_name, mean, ymin = lower, ymax = upper, fill = version, color = version)) +
   geom_col(position = "dodge", color = NA, alpha = 1.0) +
@@ -797,7 +1107,7 @@ fig7b <- fig7dat %>%
     legend.position = "none"
   )
 
-fig7c <- fig7dat %>%
+figS2c <- figS2dat %>%
   filter(indicator == "art_current_residents") %>%
   ggplot(aes(area_name, mean, ymin = lower, ymax = upper, fill = version, color = version)) +
   geom_col(position = "dodge", color = NA, alpha = 1.0) +
@@ -820,7 +1130,7 @@ fig7c <- fig7dat %>%
 
 
 
-fig7d <- fig7dat %>%
+figS2d <- figS2dat %>%
   filter(indicator == "prevalence") %>%
   ggplot(aes(area_name, mean, ymin = lower, ymax = upper, fill = version, color = version)) +
   geom_col(position = "dodge", color = NA, alpha = 1.0) +
@@ -840,7 +1150,7 @@ fig7d <- fig7dat %>%
     legend.position = "none"
   )
 
-fig7e <- fig7dat %>%
+figS2e <- figS2dat %>%
   filter(indicator == "art_coverage") %>%
   ggplot(aes(area_name, mean, ymin = lower, ymax = upper, fill = version, color = version)) +
   geom_col(position = "dodge", color = NA, alpha = 1.0) +
@@ -861,7 +1171,7 @@ fig7e <- fig7dat %>%
     legend.position = "none"
   )
 
-fig7f <- fig7dat %>%
+figS2f <- figS2dat %>%
   filter(indicator == "incidence") %>%
   ggplot(aes(area_name, mean, ymin = lower, ymax = upper, fill = version, color = version)) +
   geom_col(position = "dodge", color = NA, alpha = 1.0) +
@@ -890,12 +1200,12 @@ fig7f <- fig7dat %>%
   )
 
 
-fig7 <- grid.arrange(fig7a, fig7b, fig7c, fig7d, fig7e, fig7f,
+figS2 <- grid.arrange(figS2a, figS2b, figS2c, figS2d, figS2e, figS2f,
                      nrow = 2)
 
 
-ggsave("figure7.pdf", fig7, height = 130, width = 180, units = "mm")
-ggsave("figure7.png", fig7, height = 130, width = 180, units = "mm")
+ggsave("figureS2.pdf", figS2, height = 130, width = 180, units = "mm")
+ggsave("figureS2.png", figS2, height = 130, width = 180, units = "mm")
 
 
 
@@ -971,6 +1281,28 @@ fig4dat %>%
   group_by(indicator) %>%
   summarise(median(abs(se / mean), na.rm = TRUE))
 
+#' Figure 5
+
+
+bind_rows(
+  mutate(prev_pred, indicator = "prevalence"),
+  mutate(artcov_pred, indicator = "art_coverage"),
+  mutate(ancprev_pred, indicator = "anc_prevalence"),
+  mutate(ancartcov_pred, indicator = "anc_art_coverage")
+) %>%
+  mutate(indicator = fct_inorder(indicator)) %>%
+  filter(!is.na(estimate)) %>%
+  group_by(indicator) %>%
+  summarise(
+    pp80x = sum(estimate >= pp_lower80 & estimate <= pp_upper80),
+    pp95x = sum(estimate >= pp_lower & estimate <= pp_upper),
+    n = n()
+  ) %>%
+  mutate(
+    pp80cov = pp80x / n,
+    pp95cov = pp95x / n
+  )
+    
 
 #' Figure 6
 
@@ -989,7 +1321,10 @@ fig6bcdat %>%
          starts_with("prop_attendees"), -contains("mode"))
 
 
-fig7dat %>%
+#' Figure S2
+
+figS2dat %>%
   select(indicator, area_id, area_name, age_group_label, version, mean, lower, upper) %>%
   arrange(indicator, area_name, version) %>%
   print(n = Inf)
+
