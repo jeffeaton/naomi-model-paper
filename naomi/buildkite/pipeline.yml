@@ -1,0 +1,15 @@
+steps:
+  - label: ":whale: Build"
+    command: docker/build
+
+  - wait
+
+  - label: ":hammer: Test"
+    command: docker/test
+
+  - wait
+
+  - label: ":shipit: Push images"
+    command: docker/push
+
+  - wait

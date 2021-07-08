@@ -1,0 +1,165 @@
+library(dplyr)
+library(pdftools)
+library(readr)
+library(stringr)
+library(tidyr)
+
+url <- "https://dhsprogram.com/pubs/pdf/FR319/FR319.pdf"
+
+file <- tempfile(fileext = ".pdf")
+download.file(url, file)
+
+file <- "~/Downloads/FR319_subset.pdf"
+
+raw <- pdf_text(file)
+
+#' ## Annex 1 in pages 32-38 contains Malawi national projections
+#' for five year age groups and "special age groups" to 2050
+
+#' ## Annex 2 in pages numbered 39-263 contains population projections
+#' for each district 2018-2043.
+#' * Corresponds to actual pages 49:273
+
+text <- str_split(raw, "\n")
+
+x <- text[[1]]
+
+parse_page <- function(x) {
+
+  print(x[[1]])
+  
+  ## Extract district name from the page if exists
+  district <- x %>%
+    str_extract("Sampling errors: (.*) Malawi DHS") %>%
+    str_replace("Sampling errors: ", "") %>%
+    str_replace(" sample, Malawi DHS", "")
+  district <- district[!is.na(district)]
+
+
+  ## Get data rows
+  data <- str_subset(str_trim(x), "HIV prevalence")
+  group <- sub("HIV prevalence \\((.+)\\).*", "\\1", data)
+
+  datar <- sub("HIV prevalence \\(.*\\)", "", data)
+  datat <- str_squish(datar) %>%
+    str_split(" ") %>%
+    lapply(str_replace, ",", "") %>%
+    lapply(as.numeric) %>%
+    do.call(what = rbind) %>%
+    as.data.frame()
+
+  datat$group <- group
+  datat$district <- district
+
+  datat
+}
+
+lapply(text, parse_page) %>%
+  bind_rows() %>%
+  write_csv("~/Downloads/mdhs15-district-pevalence.csv")
+
+
+  %>%
+    mutate(
+  
+    rbind()
+
+  %>%
+    as.data.frame()
+  
+
+  ## Identify indices of column breaks based on column of spaces
+  ## Note: If everything is well formatted we don't need this.
+  ##       Keeping it commented b/c it's clever code that maybe handy later.
+  ## is_space <- str_split(data, "", simplify = TRUE) == " "
+  ## empty_col <- apply(is_space, 2, all)
+  ## colsep_idx <- which(empty_col & !lag(empty_col))
+
+  data <- str_split(str_squish(data), " ", simplify = TRUE)
+
+  if (!ncol(data) == 8 ||
+      any(data == "") ||
+      !nrow(data) %in% c(21, 42)) {
+    stop("Something has gone wrong with data parsing")
+  }
+
+  ## Note: Not checking the columb headers; assuming no deviation 
+  ## from "Both sexes", "Male", "Female". This could be more robust.
+
+  block1 <- tibble(
+    district = district,
+    year = years[1],
+    age_group = data[1:21, 1],
+    both = data[1:21, 2],
+    female = data[1:21, 3],
+    male = data[1:21, 4]
+  )
+
+  block2 <- tibble(
+    district = district,
+    year = years[2],
+    age_group = data[1:21, 5],
+    both = data[1:21, 6],
+    female = data[1:21, 7],
+    male = data[1:21, 8]
+  )
+
+  val <- bind_rows(block1, block2)
+
+  if (nrow(data) == 42) {
+    block3 <- tibble(
+      district = district,
+      year = years[3],
+      age_group = data[22:42, 1],
+      both = data[22:42, 2],
+      female = data[22:42, 3],
+      male = data[22:42, 4]
+  )
+    
+    block4 <- tibble(
+      district = district,
+      year = years[4],
+      age_group = data[22:42, 5],
+      both = data[22:42, 6],
+      female = data[22:42, 7],
+      male = data[22:42, 8]
+    )
+    val <- bind_rows(val, block3, block4)
+  }
+
+##   val
+## }
+    
+
+## Process pages and tidy up
+
+dfl <- lapply(text, parse_page)
+df <- bind_rows(dfl)
+
+df <- df %>%
+  fill(district, .direction = "down") %>%  
+  filter(!is.na(year)) %>%
+  mutate(year = as.integer(year),
+         both = as.integer(str_remove_all(both, ",")),
+         female = as.integer(str_remove_all(female, ",")),
+         male = as.integer(str_remove_all(male, ",")))
+
+## Check that all combinations of district / year / age_group represented
+## (There is some tidyr function for this, but I can't remember what it is)
+
+all_combos <- crossing(district = df$district,
+                       year = 2018:2043,
+                       age_group = c("Total", paste0(0:18*5, "-", 0:18*5+4), "95+"))
+
+stopifnot(nrow(anti_join(all_combos, df)) == 0)
+stopifnot(nrow(anti_join(df, all_combos)) == 0)
+
+## Check no duplicated district / year / age_group
+stopifnot(!duplicated(df[c("district", "year", "age_group")]))
+
+## Check no missing values
+stopifnot(!is.na(df))
+
+
+## Save results
+write_csv(df, "malawi-census-2018-district-population-projections.csv")

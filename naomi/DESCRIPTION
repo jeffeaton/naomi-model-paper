@@ -1,0 +1,72 @@
+Package: naomi
+Title: Naomi Model for Subnational HIV Estimates
+Version: 2.3.14
+Authors@R: 
+    person(given = "Jeff",
+           family = "Eaton",
+           role = c("aut", "cre"),
+           email = "jeffrey.eaton@imperial.ac.uk",
+           comment = c(ORCID = "0000-0001-7728-728X"))
+Description: This package implements the Naomi model for subnational HIV estimates.
+Depends: R (>= 2.10)
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.1.1
+Additional_repositories:
+    https://mrc-ide.github.io/drat
+Imports: 
+    Matrix,
+    R6,
+    TMB,
+    assertthat,
+    brio,
+    data.tree,
+    dplyr,
+    eppasm (>= 0.5.9),
+    first90 (>= 1.4.2),
+    forcats,
+    fs,
+    ggplot2,
+    gridExtra,
+    gt,
+    here,
+    knitr,
+    magrittr,
+    methods,
+    mvtnorm,
+    prettyunits,
+    readr,
+    rlang,
+    rmarkdown,
+    sf,
+    spdep,
+    tidyr,
+    tidyselect (>= 1.0.0),
+    traduire,
+    utils,
+    withr,
+    yaml,
+    zip,
+    zoo
+Suggests: 
+    DiagrammeR,
+    covr,
+    datamodelr,
+    lubridate,
+    mockery,
+    scales,
+    testthat (>= 2.1.0),
+    tidyverse,
+    viridis
+VignetteBuilder: knitr
+LinkingTo: 
+    RcppEigen,
+    TMB
+Remotes:
+    bergant/datamodelr,
+    mrc-ide/eppasm,
+    mrc-ide/first90release,
+    reside-ic/traduire
+
