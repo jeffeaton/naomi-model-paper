@@ -863,16 +863,15 @@ ggsave("figure6.png", fig6, width = 180, height = 180, units = "mm")
 
 #' ## Supplementary Figure S1
 #'
-#' Comparison of raw and calibrated results.
+#' Comparison of raw and calibrated results at national level by sex.
 #' 
-#' S1A: National by sex
 #' *  HIV prevalence 15-49
 #' *  ART coverage 15+
 #' *  Incidence rate 15-49
 #'
-#' S1B: HIV prevalence by district
+#' S1A: September 2018
+#' S1B: March 2016
 #'
-#' S1C: ART coverage by district
 
 
 figS1dat <- indicators %>%
@@ -882,7 +881,7 @@ figS1dat <- indicators %>%
     mutate(version = "Calibrated")
   ) %>%
   filter(
-    calendar_quarter == "CY2018Q3",
+    calendar_quarter %in% c("CY2018Q3", "CY2016Q1"),
     age_group == "Y015_049" & indicator %in% c("prevalence", "incidence") |
     age_group == "Y015_999" & indicator %in% "art_coverage"
   ) %>%
@@ -895,6 +894,7 @@ figS1dat <- indicators %>%
 figS1ai <- figS1dat %>%
   filter(
     area_id == "MWI",
+    calendar_quarter == "CY2018Q3",
     indicator == "prevalence"
   ) %>%
   ggplot(aes(sex, mean, ymin = lower, ymax = upper, fill = version)) +
@@ -905,11 +905,11 @@ figS1ai <- figS1dat %>%
   scale_y_continuous(label = label_percent(1.0), expand = expansion(c(0, 0.05)),
                      limits = c(0, 0.15)) +
   scale_fill_brewer(palette = "Set1") +
-  labs(tag = "A", title = "HIV prevalence, 15-49y", x = NULL, y = NULL, fill = NULL) +
+  labs(tag = "A", title = "HIV prevalence, 15-49y, Sep 2018", x = NULL, y = NULL, fill = NULL) +
   theme_classic(10) +
   theme(    
     legend.position = "none",
-    plot.title = element_text(size = rel(0.9), hjust = 0.5, face = "bold"),
+    plot.title = element_text(size = rel(0.85), hjust = 0.5, face = "bold"),
     plot.tag.position = c(0, 1.0),
     plot.tag = element_text(face = "bold"),
     axis.text.x = element_text(face = "bold")
@@ -918,6 +918,7 @@ figS1ai <- figS1dat %>%
 figS1aii <- figS1dat %>%
   filter(
     area_id == "MWI",
+    calendar_quarter == "CY2018Q3",
     indicator == "art_coverage"
   ) %>%
   ggplot(aes(sex, mean, ymin = lower, ymax = upper, fill = version)) +
@@ -928,11 +929,11 @@ figS1aii <- figS1dat %>%
   scale_y_continuous(label = label_percent(), expand = expansion(c(0, 0.05)),
                      limits = c(0, 0.95)) +
   scale_fill_brewer(palette = "Set1") +
-  labs(tag = "", title = "ART coverage, 15+y", x = NULL, y = NULL, fill = NULL) +
+  labs(tag = "", title = "ART coverage, 15+y, Sep 2018", x = NULL, y = NULL, fill = NULL) +
   theme_classic(10) +
   theme(    
     legend.position = "none",
-    plot.title = element_text(size = rel(0.9), hjust = 0.5, face = "bold"),
+    plot.title = element_text(size = rel(0.85), hjust = 0.5, face = "bold"),
     plot.tag.position = c(0, 1.0),
     plot.tag = element_text(face = "bold"),
     axis.text.x = element_text(face = "bold")
@@ -941,6 +942,7 @@ figS1aii <- figS1dat %>%
 figS1aiii <- figS1dat %>%
   filter(
     area_id == "MWI",
+    calendar_quarter == "CY2018Q3",
     indicator == "incidence"
   ) %>%
   ggplot(aes(sex, mean, ymin = lower, ymax = upper, fill = version)) +
@@ -950,19 +952,109 @@ figS1aiii <- figS1dat %>%
             position = position_dodge(0.9), fontface = "bold", size = 2.3) +
   scale_y_continuous(label = label_number(scale = 1e3), expand = expansion(c(0, 0.05))) +
   scale_fill_brewer(palette = "Set1") +
-  labs(tag = "", title = "Incidence per 1000, 15-49y", x = NULL, y = NULL, fill = NULL) +
+  labs(tag = "", title = "Incidence per 1000, 15-49y, Sep 2018", x = NULL, y = NULL, fill = NULL) +
   theme_classic(10) +
   theme(    
     legend.position = "none",
-    plot.title = element_text(size = rel(0.9), hjust = 0.5, face = "bold"),
+    plot.title = element_text(size = rel(0.85), hjust = 0.5, face = "bold"),
     plot.tag.position = c(0, 1.0),
     plot.tag = element_text(face = "bold"),
     axis.text.x = element_text(face = "bold")
   )
 
 
-figS1b <- figS1dat %>%
+figS1bi <- figS1dat %>%
   filter(
+    area_id == "MWI",
+    calendar_quarter == "CY2016Q1",
+    indicator == "prevalence"
+  ) %>%
+  ggplot(aes(sex, mean, ymin = lower, ymax = upper, fill = version)) +
+  geom_col(position = position_dodge(0.9)) +
+  geom_linerange(position = position_dodge(0.9)) +
+  geom_text(aes(y = upper + 0.006, label = percent(mean, 0.1)),
+            position = position_dodge(0.9), fontface = "bold", size = 2.3) +
+  scale_y_continuous(label = label_percent(1.0), expand = expansion(c(0, 0.05)),
+                     limits = c(0, 0.15)) +
+  scale_fill_brewer(palette = "Set1") +
+  labs(tag = "B", title = "HIV prevalence, 15-49y, Mar 2016", x = NULL, y = NULL, fill = NULL) +
+  theme_classic(10) +
+  theme(    
+    legend.position = "none",
+    plot.title = element_text(size = rel(0.85), hjust = 0.5, face = "bold"),
+    plot.tag.position = c(0, 1.0),
+    plot.tag = element_text(face = "bold"),
+    axis.text.x = element_text(face = "bold")
+  )
+
+figS1bii <- figS1dat %>%
+  filter(
+    area_id == "MWI",
+    calendar_quarter == "CY2016Q1",
+    indicator == "art_coverage"
+  ) %>%
+  ggplot(aes(sex, mean, ymin = lower, ymax = upper, fill = version)) +
+  geom_col(position = position_dodge(0.9)) +
+  geom_linerange(position = position_dodge(0.9)) +
+  geom_text(aes(y = upper + 0.04, label = percent(mean, 1.0)),
+            position = position_dodge(0.9), fontface = "bold", size = 2.3) +
+  scale_y_continuous(label = label_percent(), expand = expansion(c(0, 0.05)),
+                     limits = c(0, 0.95)) +
+  scale_fill_brewer(palette = "Set1") +
+  labs(tag = "", title = "ART coverage, 15+y, Mar 2016", x = NULL, y = NULL, fill = NULL) +
+  theme_classic(10) +
+  theme(    
+    legend.position = "none",
+    plot.title = element_text(size = rel(0.85), hjust = 0.5, face = "bold"),
+    plot.tag.position = c(0, 1.0),
+    plot.tag = element_text(face = "bold"),
+    axis.text.x = element_text(face = "bold")
+  )
+
+figS1biii <- figS1dat %>%
+  filter(
+    area_id == "MWI",
+    calendar_quarter == "CY2016Q1",
+    indicator == "incidence"
+  ) %>%
+  ggplot(aes(sex, mean, ymin = lower, ymax = upper, fill = version)) +
+  geom_col(position = position_dodge(0.9)) +
+  geom_linerange(position = position_dodge(0.9)) +
+  geom_text(aes(y = upper + 0.001, label = number(mean, 0.1, scale = 1e3)),
+            position = position_dodge(0.9), fontface = "bold", size = 2.3) +
+  scale_y_continuous(label = label_number(scale = 1e3), expand = expansion(c(0, 0.05))) +
+  scale_fill_brewer(palette = "Set1") +
+  labs(tag = "", title = "Incidence per 1000, 15-49y, Mar 2016", x = NULL, y = NULL, fill = NULL) +
+  theme_classic(10) +
+  theme(    
+    legend.position = "none",
+    plot.title = element_text(size = rel(0.85), hjust = 0.5, face = "bold"),
+    plot.tag.position = c(0, 1.0),
+    plot.tag = element_text(face = "bold"),
+    axis.text.x = element_text(face = "bold")
+  )
+
+figS1leg <- cowplot::get_legend(figS1ai + theme(legend.position = "bottom"))
+  
+figS1a <- grid.arrange(figS1ai, figS1aii, figS1aiii, nrow = 1)
+figS1b <- grid.arrange(figS1bi, figS1bii, figS1biii, nrow = 1)
+figS1 <- grid.arrange(figS1a, figS1b, figS1leg, ncol = 1, heights = c(1, 1, 0.1))
+
+ggsave("figureS1.pdf", figS1, width = 180, height = 130, units = "mm")
+ggsave("figureS1.png", figS1, width = 180, height = 130, units = "mm")
+
+
+#' ## Supplementary Figure S2
+#'
+#' Comparison of raw and calibrated results at district level
+#' 
+#' S2A: HIV prevalence 15-49 by district
+#' S2B: ART coverage 15+ by district
+#' 
+
+figS2a <- figS1dat %>%
+  filter(
+    calendar_quarter == "CY2018Q3",
     area_level == 4,
     indicator == "prevalence",
     sex == "Both"
@@ -975,10 +1067,11 @@ figS1b <- figS1dat %>%
   geom_linerange(position = position_dodge(0.9)) +
   scale_y_continuous(label = label_percent(1.0), expand = expansion(c(0, 0.05))) +
   scale_fill_brewer(palette = "Set1") +
-  labs(tag = "B", y = "HIV prevalence, 15-49y", x = NULL, fill = NULL) +
+  labs(tag = "A", y = "HIV prevalence, 15-49y", x = NULL, fill = NULL) +
   theme_classic(10) +
   theme(    
-    legend.position = "none",
+    legend.position = c(1, 1.15),
+    legend.just = c(1, 1),
     plot.title = element_text(size = rel(0.9), hjust = 0.5, face = "bold"),
     plot.tag.position = c(0, 1.08),
     plot.tag = element_text(face = "bold"),
@@ -986,8 +1079,9 @@ figS1b <- figS1dat %>%
     plot.margin = margin(20, 5.5, 5.5, 5.5, "pt")
   )
 
-figS1c <- figS1dat %>%
+figS2b <- figS1dat %>%
   filter(
+    calendar_quarter == "CY2018Q3",
     area_level == 4,
     indicator == "art_coverage",
     sex == "Both"
@@ -1000,7 +1094,7 @@ figS1c <- figS1dat %>%
   geom_linerange(position = position_dodge(0.9)) +
   scale_y_continuous(label = label_percent(1.0), expand = expansion(c(0, 0.05))) +
   scale_fill_brewer(palette = "Set1") +
-  labs(tag = "C", y = "ART coverage, 15+y", x = NULL, fill = NULL) +
+  labs(tag = "B", y = "ART coverage, 15+y", x = NULL, fill = NULL) +
   coord_cartesian(ylim = c(0.6, 0.9)) +
   theme_classic(10) +
   theme(    
@@ -1013,17 +1107,13 @@ figS1c <- figS1dat %>%
   )
 
 
-figS1leg <- cowplot::get_legend(figS1ai + theme(legend.position = "bottom"))
-  
-figS1a <- grid.arrange(figS1ai, figS1aii, figS1aiii, nrow = 1)
-figS1 <- grid.arrange(figS1a, figS1b, figS1c, figS1leg, ncol = 1, heights = c(1, 1, 1, 0.1))
+figS2 <- grid.arrange(figS2a, figS2b, ncol = 1, heights = c(1, 1))
 
-ggsave("figureS1.pdf", figS1, width = 180, height = 190, units = "mm")
-ggsave("figureS1.png", figS1, width = 180, height = 190, units = "mm")
+ggsave("figureS2.pdf", figS2, width = 180, height = 120, units = "mm")
+ggsave("figureS2.png", figS2, width = 180, height = 120, units = "mm")
 
 
-
-#' ## Supplementary Figure S2
+#' ## Supplementary Figure S3
 #'
 #' Comparison of results with ART attendance = FALSE
 #'
@@ -1035,7 +1125,7 @@ ggsave("figureS1.png", figS1, width = 180, height = 190, units = "mm")
 #' * Attending ART
 #' * Unmet need for ART
 
-figS2dat <- indicators %>%
+figS3dat <- indicators %>%
   st_drop_geometry() %>%
   mutate(version = "full") %>%
   bind_rows(
@@ -1058,7 +1148,7 @@ figS2dat <- indicators %>%
   )
 
 
-figS2a <- figS2dat %>%
+figS3a <- figS3dat %>%
   filter(indicator == "plhiv") %>%
   ggplot(aes(area_name, mean, ymin = lower, ymax = upper, fill = version, color = version)) +
   geom_col(position = "dodge", color = NA, alpha = 1.0) +
@@ -1086,7 +1176,7 @@ figS2a <- figS2dat %>%
     legend.key.size = unit(1, "lines")
   )
 
-figS2b <- figS2dat %>%
+figS3b <- figS3dat %>%
   filter(indicator == "art_current") %>%
   ggplot(aes(area_name, mean, ymin = lower, ymax = upper, fill = version, color = version)) +
   geom_col(position = "dodge", color = NA, alpha = 1.0) +
@@ -1107,7 +1197,7 @@ figS2b <- figS2dat %>%
     legend.position = "none"
   )
 
-figS2c <- figS2dat %>%
+figS3c <- figS3dat %>%
   filter(indicator == "art_current_residents") %>%
   ggplot(aes(area_name, mean, ymin = lower, ymax = upper, fill = version, color = version)) +
   geom_col(position = "dodge", color = NA, alpha = 1.0) +
@@ -1130,7 +1220,7 @@ figS2c <- figS2dat %>%
 
 
 
-figS2d <- figS2dat %>%
+figS3d <- figS3dat %>%
   filter(indicator == "prevalence") %>%
   ggplot(aes(area_name, mean, ymin = lower, ymax = upper, fill = version, color = version)) +
   geom_col(position = "dodge", color = NA, alpha = 1.0) +
@@ -1150,7 +1240,7 @@ figS2d <- figS2dat %>%
     legend.position = "none"
   )
 
-figS2e <- figS2dat %>%
+figS3e <- figS3dat %>%
   filter(indicator == "art_coverage") %>%
   ggplot(aes(area_name, mean, ymin = lower, ymax = upper, fill = version, color = version)) +
   geom_col(position = "dodge", color = NA, alpha = 1.0) +
@@ -1171,7 +1261,7 @@ figS2e <- figS2dat %>%
     legend.position = "none"
   )
 
-figS2f <- figS2dat %>%
+figS3f <- figS3dat %>%
   filter(indicator == "incidence") %>%
   ggplot(aes(area_name, mean, ymin = lower, ymax = upper, fill = version, color = version)) +
   geom_col(position = "dodge", color = NA, alpha = 1.0) +
@@ -1200,12 +1290,12 @@ figS2f <- figS2dat %>%
   )
 
 
-figS2 <- grid.arrange(figS2a, figS2b, figS2c, figS2d, figS2e, figS2f,
+figS3 <- grid.arrange(figS3a, figS3b, figS3c, figS3d, figS3e, figS3f,
                      nrow = 2)
 
 
-ggsave("figureS2.pdf", figS2, height = 130, width = 180, units = "mm")
-ggsave("figureS2.png", figS2, height = 130, width = 180, units = "mm")
+ggsave("figureS3.pdf", figS3, height = 130, width = 180, units = "mm")
+ggsave("figureS3.png", figS3, height = 130, width = 180, units = "mm")
 
 
 
@@ -1321,9 +1411,9 @@ fig6bcdat %>%
          starts_with("prop_attendees"), -contains("mode"))
 
 
-#' Figure S2
+#' Figure S3
 
-figS2dat %>%
+figS3dat %>%
   select(indicator, area_id, area_name, age_group_label, version, mean, lower, upper) %>%
   arrange(indicator, area_name, version) %>%
   print(n = Inf)
